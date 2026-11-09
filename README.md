@@ -52,7 +52,7 @@ Rules only fire on facts that were actually fetched; a failed RPC lookup never b
 
 From a scan of 3,133 proposals in 450 active DAOs (last 90 days):
 
-- **`deer.sputnik-dao.near` #0–#4**: five proposals titled "Upgrade Sputnik-DAO Contract to 3.2" pass the code hash `…U9hJXu`, one character short of the official v3.2 hash `…U9hJXuF`. X-Ray: *"Code hash only looks like Sputnik v3.2"*. Open `#/dao/deer.sputnik-dao.near/3`.
+- **`deer.sputnik-dao.near` #0–#4**: five proposals titled "Upgrade Sputnik-DAO Contract to 3.2" pass the code hash `…U9hJXu`, one character short of the official v3.2 hash `…U9hJXuF`. X-Ray: *"Code hash only looks like Sputnik v3.2"*. Open `#/dao/deer.sputnik-dao.near/3`. On chain the factory rejected all three with `ERR_NO_HASH`, yet Sputnik kept them `Approved` and Trezu shows them as **Executed**; the DAO only upgraded with #5. Reported upstream: [NEAR-DevHub/trezu#1925](https://github.com/NEAR-DevHub/trezu/issues/1925).
 - **`dti-lab-jj.sputnik-dao.near` #56**: titled "Transferencia de 200 NEAR", the payload sends **275 NEAR** to the proposer. X-Ray: *"Description and payload disagree"* plus *"An approver pays themself"*. (The DAO rejected it.)
 
 ## Try it (judges: "do X → see Y")
