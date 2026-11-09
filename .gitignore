@@ -3,3 +3,4 @@ dist
 .env*
 public/feed-state.json
 .vercel
+DEMO_POST.md

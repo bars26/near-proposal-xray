@@ -4,7 +4,7 @@ Read any Sputnik DAO or Trezu proposal before you vote: what it really sends, to
 
 Built at **NEAR HACKATHON** (Nov 2026) for the **Social Money** track (also fits AI Security & Defense).
 
-- Live site: _(Vercel URL, added after deploy)_
+- Live site: https://near-proposal-xray.vercel.app
 - Feed data: [`data` branch](https://github.com/bars26/near-proposal-xray/tree/data), rebuilt hourly by GitHub Actions
 
 ## The problem
