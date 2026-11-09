@@ -1,0 +1,23 @@
+{
+  "name": "near-proposal-xray",
+  "version": "0.1.0",
+  "description": "Read any Sputnik DAO / Trezu proposal before you vote: decoded calls, real outflows, policy diffs and risk flags.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "inspect": "node --experimental-strip-types scripts/inspect.ts",
+    "feed": "node --experimental-strip-types scripts/build-feed.ts"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.5",
+    "vitest": "^5.0.5"
+  }
+}
