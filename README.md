@@ -5,7 +5,7 @@ Read any Sputnik DAO or Trezu proposal before you vote: what it really sends, to
 Built at **NEAR HACKATHON** (Nov 2026) for the **Social Money** track (also fits AI Security & Defense).
 
 - Live site: https://near-proposal-xray.vercel.app
-- Feed data: a snapshot ships with the site (`public/feed.json`); the [`feed` workflow](.github/workflows/feed.yml) rebuilds it hourly on the [`data` branch](https://github.com/bars26/near-proposal-xray/tree/data), which the site prefers when present
+- Feed data: a snapshot ships with the site (`public/feed.json`); the [`feed` workflow](.github/workflows/feed.yml) rebuilds it on the [`data` branch](https://github.com/bars26/near-proposal-xray/tree/data), which the site prefers when present. The workflow is scheduled hourly, but GitHub runs scheduled jobs best-effort and often less often; the home page always shows the feed's age ("updated … ago")
 
 ## The problem
 
@@ -102,7 +102,7 @@ src/chain.ts     RPC loaders + on-chain facts
 src/dao.ts       DAO-level health (approvals needed, contract version)
 src/samples.ts   crafted proposals for the demo
 src/main.ts      the site (vanilla TS + Vite)
-scripts/         inspect.ts (CLI), build-feed.ts (hourly feed)
+scripts/         inspect.ts (CLI), build-feed.ts (cross-DAO feed)
 test/            vitest
 ```
 

@@ -137,7 +137,7 @@ let feedFilter: "open" | "risky" | "all" = "risky";
 async function showHome(mine: number) {
   loading("Loading the latest proposals across every Sputnik DAO…");
   let feed: Feed | null = null;
-  // Live feed is republished hourly to the repo's `data` branch; the bundled snapshot is the fallback.
+  // The feed workflow republishes to the repo's `data` branch (scheduled hourly, run best-effort by GitHub); the bundled snapshot is the fallback.
   for (const url of [FEED_URL, "/feed.json"]) {
     try {
       const res = await fetch(url, { cache: "no-cache" });
