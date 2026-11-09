@@ -9,7 +9,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { NearRpc } from "../src/rpc.ts";
 import { FACTORY, collectFacts, loadDao } from "../src/chain.ts";
-import { analyze, SEVERITY_ORDER, type Report } from "../src/analyze.ts";
+import { analyze, verdictOf, SEVERITY_ORDER, type Report } from "../src/analyze.ts";
 import type { Proposal } from "../src/types.ts";
 
 const argv = process.argv.slice(2);
@@ -61,11 +61,15 @@ const active = Object.entries(state)
   .filter(([, s]) => BigInt(s.lastTimeNs) >= cutoffNs)
   .map(([d]) => d);
 log(`${Object.keys(state).length} DAOs have proposals; ${active.length} active in the last ${DAYS} days`);
+// Save the scan right away so an interrupted run does not have to redo it.
+mkdirSync(OUT_DIR, { recursive: true });
+writeFileSync(STATE, JSON.stringify(state));
 
 // 2) X-ray recent proposals of active DAOs
 const reports: Report[] = [];
 const failures: string[] = [];
-for (const dao of active) {
+let analysed = 0;
+async function analyseDao(dao: string) {
   try {
     const ctx = await loadDao(rpc, dao);
     const last = state[dao].last;
@@ -73,13 +77,20 @@ for (const dao of active) {
     const proposals = ((await rpc.view<Proposal[]>(dao, "get_proposals", { from_index: from, limit: last - from })) ?? []).filter(
       (p) => BigInt(p.submission_time) >= cutoffNs,
     );
-    if (!proposals.length) continue;
+    if (!proposals.length) return;
     const facts = await collectFacts(rpc, ctx, proposals);
     for (const p of proposals) reports.push(analyze(p, ctx, facts, now));
   } catch (e) {
     failures.push(`${dao}: ${(e as Error).message.slice(0, 120)}`);
+  } finally {
+    if (++analysed % 25 === 0) log(`  analysed ${analysed}/${active.length} DAOs`);
   }
 }
+// A few DAOs at a time; the RPC client still caps concurrent requests.
+const queue = [...active];
+await Promise.all(Array.from({ length: 4 }, async () => {
+  for (let dao = queue.shift(); dao; dao = queue.shift()) await analyseDao(dao);
+}));
 log(`analysed ${reports.length} proposals (${failures.length} DAOs failed)`);
 
 // 3) write feed: open proposals first, by severity, then newest
@@ -100,6 +111,8 @@ const items = reports.map((r) => ({
   expiresAtMs: r.votes.expiresAtMs,
   remaining: r.votes.remaining,
   worst: r.worst,
+  verdict: verdictOf(r),
+  unchecked: r.unchecked.length,
   summary: r.summary.slice(0, 3),
   flags: r.flags.map((f) => ({ id: f.id, severity: f.severity, title: f.title })),
 }));
@@ -138,6 +151,9 @@ if (CALIBRATE) {
   const bySev: Record<string, number> = {};
   for (const r of reports) bySev[r.worst ?? "clean"] = (bySev[r.worst ?? "clean"] ?? 0) + 1;
   console.log("worst severity per proposal:", bySev);
+  const byVerdict: Record<string, number> = {};
+  for (const r of reports) byVerdict[verdictOf(r)] = (byVerdict[verdictOf(r)] ?? 0) + 1;
+  console.log("headline verdict per proposal:", byVerdict);
   if (failures.length) console.log("failures:", failures.slice(0, 10));
 }
 

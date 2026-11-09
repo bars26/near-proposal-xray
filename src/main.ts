@@ -1,7 +1,7 @@
 import "./style.css";
 import { NearRpc } from "./rpc.ts";
 import { collectFacts, loadDao, loadProposal, loadProposals } from "./chain.ts";
-import { analyze, type Report, type Severity } from "./analyze.ts";
+import { analyze, verdictOf, type Report, type Severity } from "./analyze.ts";
 import { daoHealth } from "./dao.ts";
 import { describeAccount, type DecodedCall } from "./decode.ts";
 import { durationNs, formatUnits } from "./format.ts";
@@ -18,6 +18,15 @@ const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 const SEV_LABEL: Record<Severity, string> = { critical: "Critical", high: "High", medium: "Check", info: "Note" };
+
+type Verdict = Severity | "partial" | "clean";
+
+/** Row badge: worst finding, else "Partly checked" when checks could not run, else "Clean". */
+function verdictBadge(v: Verdict) {
+  if (v === "partial") return `<span class="badge partial" title="No problem found, but some checks could not run">Partly checked</span>`;
+  if (v === "clean") return `<span class="badge clean">Clean</span>`;
+  return badge(v);
+}
 
 function badge(sev: Severity | null, text?: string) {
   if (!sev) return `<span class="badge clean">Clean</span>`;
@@ -106,6 +115,9 @@ interface FeedItem {
   expiresAtMs: number;
   remaining: number | null;
   worst: Severity | null;
+  /** Present in feeds built after the "partly checked" change. */
+  verdict?: Verdict;
+  unchecked?: number;
   summary: string[];
   flags: { id: string; severity: Severity; title: string }[];
 }
@@ -147,7 +159,7 @@ async function showHome(mine: number) {
       <p class="muted">Each one runs against a demo treasury (2,000 NEAR, 20,000 USDt, 3 approvers, 2 needed). Nothing touches the chain.</p>
       <div class="samples">${SAMPLES.map((s) => `<a class="sample" href="#/sample/${s.slug}"><b>${esc(s.name)}</b><span>${esc(s.teaches)}</span></a>`).join("")}</div>
     </section>
-    <section class="card" id="feed">${feed ? feedHtml(feed) : `<h2>Live feed</h2><p class="muted">No feed built yet. Run <code>npm run feed</code>, or inspect a DAO above.</p>`}</section>`, mine)) return;
+    <section class="card" id="feed">${feed ? feedHtml(feed) : `<h2>Live feed</h2><p class="muted">The feed could not be loaded. Search any DAO above, or build it locally with <code>npm run feed</code>.</p>`}</section>`, mine)) return;
   if (feed) wireFeed(feed);
 }
 
@@ -176,7 +188,7 @@ function feedRow(i: FeedItem) {
   const top = i.flags.filter((f) => f.severity !== "info").slice(0, 2);
   const open = i.status === "InProgress";
   return `<li><a class="row" href="#/dao/${i.daoId}/${i.id}">
-    ${badge(i.worst)}
+    ${verdictBadge(i.verdict ?? i.worst ?? "clean")}
     <div class="row-main">
       <div class="row-title"><span class="dao">${esc(dao)}</span> <span class="muted">#${i.id}</span> ${esc(i.title || i.summary[0] || "")}</div>
       <div class="row-sub">${top.map((f) => `<span class="dot ${f.severity}"></span>${esc(f.title)}`).join(" &nbsp; ") || esc(i.summary[0] ?? "")}</div>
@@ -210,7 +222,7 @@ async function showDao(daoId: string, mine: number) {
       <h2>Recent proposals</h2>
       <ul class="rows">${reports
         .map(
-          (r) => `<li><a class="row" href="#/dao/${daoId}/${r.id}">${badge(r.worst)}
+          (r) => `<li><a class="row" href="#/dao/${daoId}/${r.id}">${verdictBadge(verdictOf(r))}
           <div class="row-main"><div class="row-title"><span class="muted">#${r.id}</span> ${esc(r.description.title || r.summary[0])}</div>
           <div class="row-sub">${esc(r.summary[0] ?? "")}</div></div>
           <div class="row-meta">${r.status === "InProgress" ? `<span class="pill live">open</span>` : `<span class="pill">${esc(r.status)}</span>`}<span class="muted">${ago(r.submittedAtMs)}</span></div></a></li>`,
@@ -267,10 +279,14 @@ function reportHtml(r: Report, ctx: DaoContext, raw: unknown, demo: boolean) {
   const titleLink = demo ? esc(DEMO_DAO) : `<a href="#/dao/${r.daoId}">${esc(r.daoId)}</a>`;
   const claims = Object.entries(r.description.fields);
   return `
-    <section class="card verdict ${r.worst ?? "clean"}">
+    <section class="card verdict ${verdictOf(r)}">
       <p class="eyebrow">${titleLink} · proposal #${r.id} · ${esc(r.status)} · by ${acct(r.proposer)}</p>
       <h1>${esc(r.description.title || "Untitled proposal")}</h1>
-      <div class="verdict-line">${badge(r.worst, r.worst ? `${SEV_LABEL[r.worst]} risk` : "Nothing found")}
+      <div class="verdict-line">${
+        verdictOf(r) === "partial"
+          ? `<span class="badge partial">Partly checked</span>`
+          : badge(r.worst, r.worst ? (r.worst === "info" ? "No risk found" : `${SEV_LABEL[r.worst]} risk`) : "No risk found")
+      }
         <span>${r.flags.filter((f) => f.severity !== "info").length} warning(s) · ${r.decoded.calls.length || 1} action(s)</span></div>
     </section>
 
@@ -290,6 +306,14 @@ function reportHtml(r: Report, ctx: DaoContext, raw: unknown, demo: boolean) {
       r.flags.length
         ? `<section class="card"><h2>Findings</h2><ul class="flags">${r.flags
             .map((f) => `<li class="flag ${f.severity}">${badge(f.severity)}<div><b>${esc(f.title)}</b><p>${esc(f.detail)}</p></div></li>`)
+            .join("")}</ul></section>`
+        : ""
+    }
+
+    ${
+      r.unchecked.length
+        ? `<section class="card unchecked"><h2>Not checked</h2><p class="muted">X-Ray could not run these checks, so "no warning" here does not mean safe.</p><ul class="plain">${r.unchecked
+            .map((u) => `<li>${esc(u)}</li>`)
             .join("")}</ul></section>`
         : ""
     }

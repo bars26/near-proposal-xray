@@ -59,6 +59,11 @@ export interface Report {
   votes: VoteState;
   policyDiff: PolicyDiff | null;
   worst: Severity | null;
+  /**
+   * Checks that could not run (unknown method, chain data missing, release list
+   * unavailable). A report with no flags but a non-empty list is "partly checked", not clean.
+   */
+  unchecked: string[];
 }
 
 interface ParsedDescriptionOut {
@@ -75,7 +80,8 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
   const decoded = decodeProposal(ctx.daoId, p);
   const desc = parseDescription(p.description ?? "");
   const flags: Flag[] = [];
-  const add = (id: string, severity: Severity, title: string, detail: string) => flags.push({ id, severity, title, detail });
+  const unchecked: string[] = [];
+  const add =(id: string, severity: Severity, title: string, detail: string) => flags.push({ id, severity, title, detail });
   const members = membersOf(ctx.policy);
   const label = labelOf(p.kind);
   const k = p.kind as any;
@@ -99,7 +105,11 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
     if (o.asset.kind === "near") balance = ctx.nearBalance;
     else if (o.asset.kind === "ft") balance = facts.daoTokenBalance[o.asset.contract] ?? null;
     else if (o.asset.kind === "intents") balance = facts.intentsBalance?.[o.asset.tokenId] ?? null;
-    if (balance === null || amount === 0n) continue;
+    if (amount === 0n) continue;
+    if (balance === null) {
+      if (o.asset.kind !== "nft") unchecked.push(`DAO balance of ${assetInfo(o.asset, facts).symbol} unknown: treasury share not checked.`);
+      continue;
+    }
     const pretty = formatAmount(amount, o.asset, facts);
     if (amount > balance) {
       add(
@@ -120,7 +130,9 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
 
   // ---- who receives ----
   const missing = new Map<string, boolean>(); // account -> receives NEAR?
+  const unknownRecipients = new Set<string>();
   for (const o of outflows) {
+    if (isNearAccountId(o.to) && !isImplicit(o.to) && facts.accountExists[o.to] === undefined) unknownRecipients.add(o.to);
     if (isNearAccountId(o.to) && !isImplicit(o.to) && facts.accountExists[o.to] === false) {
       missing.set(o.to, (missing.get(o.to) ?? false) || o.asset.kind === "near");
     }
@@ -158,19 +170,31 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
     const actual = outflows
       .map((o) => {
         const info = assetInfo(o.asset, facts);
-        return info.decimals === null ? null : { sym: normSym(info.symbol), value: toNumber(o.amount, info.decimals) };
+        return info.decimals === null ? null : { sym: normSym(info.symbol), label: info.symbol, value: toNumber(o.amount, info.decimals) };
       })
-      .filter((x): x is { sym: string; value: number } => !!x);
+      .filter((x): x is { sym: string; label: string; value: number } => !!x);
     const comparable = claimed.filter((c) => actual.some((a) => sameUnit(a.sym, c.symbol)));
     if (comparable.length && actual.length) {
-      const matched = comparable.some((c) => actual.some((a) => sameUnit(a.sym, c.symbol) && close(a.value, c.value)));
-      if (!matched) {
-        const said = comparable.map((c) => `${c.value} ${c.symbol}`).join(", ");
-        const does = actual.map((a) => `${round(a.value)} ${a.sym}`).join(", ");
-        add("description-mismatch", "high", "Description and payload disagree", `The text says ${said}; the proposal actually sends ${does}.`);
+      const hits = comparable.filter((c) => actual.some((a) => sameUnit(a.sym, c.symbol) && close(a.value, c.value)));
+      const misses = comparable.filter((c) => !hits.includes(c));
+      const does = actual.map((a) => `${round(a.value)} ${a.label}`).join(", ");
+      const fmt = (xs: typeof comparable) => [...new Set(xs.map((c) => `${round(c.value)} ${c.symbol}`))].join(", ");
+      if (!hits.length) {
+        add("description-mismatch", "high", "Description and payload disagree", `The text says ${fmt(comparable)}; the proposal actually sends ${does}.`);
+      } else if (misses.length) {
+        // One number in the text matches, others do not. The match may be a budget or total,
+        // not the payment, so say it is ambiguous instead of treating it as confirmed.
+        add(
+          "ambiguous-amount",
+          "medium",
+          "Text mentions several amounts",
+          `The text mentions ${fmt(comparable)}; the proposal sends ${does}. Confirm which number is the payment.`,
+        );
       }
     }
   }
+  const undecimaled = outflows.filter((o) => o.asset.kind !== "nft" && assetInfo(o.asset, facts).decimals === null);
+  if (undecimaled.length) unchecked.push(`Token metadata unavailable for ${[...new Set(undecimaled.map((o) => assetInfo(o.asset, facts).symbol))].join(", ")}: amounts shown raw, text amounts not compared.`);
 
   // ---- Trezu-style claimed action vs payload ----
   const claimedAction = desc.fields["proposal action"] ?? null;
@@ -197,7 +221,18 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
     }
   }
 
+  if (unknownRecipients.size) {
+    const list = [...unknownRecipients];
+    unchecked.push(`Could not confirm that ${list.slice(0, 3).join(", ")}${list.length > 3 ? ` and ${list.length - 3} more` : ""} exist${list.length === 1 ? "s" : ""}.`);
+  }
+
   // ---- raw calls ----
+  const unknownMethods = decoded.calls.filter((c) => !c.known);
+  for (const c of unknownMethods) {
+    unchecked.push(`X-Ray does not model ${c.method} on ${c.receiver}: what it does depends on that contract. Read call #${c.index + 1}'s arguments below.`);
+  }
+  const unseenReceivers = [...new Set(decoded.calls.map((c) => c.receiver))].filter((r) => r !== ctx.daoId && facts.accountExists[r] === undefined);
+  if (unseenReceivers.length) unchecked.push(`Could not confirm that contract ${unseenReceivers.join(", ")} exists or has code.`);
   for (const c of decoded.calls) {
     if (c.args.kind === "binary") {
       add("opaque-args", "medium", `Call #${c.index + 1} has unreadable arguments`, `${c.method} on ${c.receiver} receives ${c.args.length} bytes of binary data that no wallet can show.`);
@@ -221,10 +256,14 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
   // ---- code upgrades ----
   if ("UpgradeSelf" in (typeof k === "object" ? k : {})) {
     const hash = k.UpgradeSelf.hash as string;
-    if (ctx.knownCodeHashes.length && !ctx.knownCodeHashes.includes(hash)) {
+    if (!ctx.knownCodeHashes.length) {
+      // No release list: never claim a match we could not check.
+      add("upgrade-unverified", "critical", "Replaces the DAO's code; hash could not be verified", `The list of official Sputnik releases (sputnik-dao.near get_contracts_metadata) could not be loaded, so code hash ${hash} is unchecked. Treat it as unknown code until verified.`);
+      unchecked.push("Official Sputnik release list unavailable: the upgrade's code hash was not verified.");
+    } else if (!ctx.knownCodeHashes.includes(hash)) {
       add("upgrade-unknown", "critical", "Replaces the DAO's code with unknown code", `Code hash ${hash} is not a Sputnik release known to sputnik-dao.near. Whoever wrote it can take everything.`);
     } else {
-      add("upgrade-known", "high", "Upgrades the DAO's code", `Hash ${hash} matches a Sputnik release published by the factory.`);
+      add("upgrade-known", "high", "Upgrades the DAO's code", `Hash ${hash} matches Sputnik ${ctx.versions?.[hash] ?? "release"} published by the factory.`);
     }
   }
   if (typeof k === "object" && "UpgradeRemote" in k) {
@@ -309,7 +348,15 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
     votes,
     policyDiff,
     worst: flags[0]?.severity ?? null,
+    unchecked: [...new Set(unchecked)],
   };
+}
+
+/** Headline state: worst finding, or "partial" when nothing was found but some checks could not run. */
+export function verdictOf(r: Pick<Report, "worst" | "unchecked">): Severity | "partial" | "clean" {
+  if (r.worst && r.worst !== "info") return r.worst;
+  if (r.unchecked.length) return "partial";
+  return r.worst ?? "clean";
 }
 
 function dedupe(flags: Flag[]): Flag[] {
@@ -382,8 +429,12 @@ function summarize(d: Decoded, p: Proposal, ctx: DaoContext, facts: ChainFacts, 
     if ("ChangePolicy" in k || String(Object.keys(k)[0]).startsWith("ChangePolicy")) lines.push("Changes who can do what in this DAO (see policy diff).");
   }
   if (p.kind === "Vote") lines.push("Signalling vote only: nothing executes on-chain.");
-  if (!lines.length && d.calls.length) {
-    for (const c of d.calls) lines.push(`Calls ${c.method} on ${c.receiver}${describeAccount(c.receiver) ? ` (${describeAccount(c.receiver)})` : ""}.`);
+  // Calls that produced no modelled effect still get a line, so nothing is silently skipped.
+  const withEffect = new Set(d.effects.map((e) => e.actionIndex));
+  for (const c of d.calls) {
+    if (withEffect.has(c.index)) continue;
+    const who = describeAccount(c.receiver);
+    lines.push(`Calls ${c.method} on ${c.receiver}${who ? ` (${who})` : ""}${c.known ? "" : " — effect not modelled by X-Ray"}.`);
   }
   if (!lines.length) lines.push(`${label} proposal with no on-chain side effects we can decode.`);
   void ctx;

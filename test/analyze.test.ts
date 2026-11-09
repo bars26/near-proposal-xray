@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyze } from "../src/analyze.ts";
+import { analyze, verdictOf } from "../src/analyze.ts";
 import { decodeArgs, mentionedAmounts, parseDescription } from "../src/decode.ts";
 import { DAO, NEAR, NOW, b64, call, ctx, facts, policy, proposal } from "./helpers.ts";
 
@@ -34,6 +34,49 @@ describe("clean proposals stay clean", () => {
     expect(r.flags.filter((f) => f.severity !== "info")).toEqual([]);
     expect(r.summary[0]).toContain("500 USDt to designer.near");
     expect(r.votes.remaining).toBe(2);
+  });
+});
+
+describe("never claim more than was checked", () => {
+  it("an upgrade is not called official when the release list is unavailable", () => {
+    const c = ctx();
+    c.knownCodeHashes = [];
+    const r = analyze(proposal({ UpgradeSelf: { hash: "EvilHash" } }), c, facts(), NOW);
+    expect(r.flags[0]).toMatchObject({ id: "upgrade-unverified", severity: "critical" });
+    expect(r.flags.map((f) => f.detail).join(" ")).not.toMatch(/matches/);
+    expect(r.unchecked.join(" ")).toMatch(/release list unavailable/);
+  });
+
+  it("an unknown method with no chain data is partly checked, not clean", () => {
+    const r = analyze(proposal(call("mystery.near", { method: "do_thing", args: { x: 1 } })), ctx(), { accountExists: {}, hasCode: {}, tokens: {}, daoTokenBalance: {} }, NOW);
+    expect(r.flags.filter((f) => f.severity !== "info")).toEqual([]);
+    expect(verdictOf(r)).toBe("partial");
+    expect(r.unchecked.join(" ")).toMatch(/does not model do_thing on mystery\.near/);
+    expect(r.unchecked.join(" ")).toMatch(/Could not confirm that contract mystery\.near/);
+    expect(r.summary.join(" ")).toMatch(/do_thing.*not modelled/);
+  });
+
+  it("a fully checked routine payment is clean with nothing unchecked", () => {
+    const p = proposal(call(USDT, { method: "ft_transfer", args: { receiver_id: "designer.near", amount: "500000000" }, deposit: 1n }), { proposer: "designer.near" });
+    const r = analyze(p, ctx(), facts({ accountExists: { "designer.near": true, [USDT]: true }, hasCode: { [USDT]: true } }), NOW);
+    expect(r.unchecked).toEqual([]);
+  });
+
+  it("a second number in the text does not count as confirmation", () => {
+    const p = proposal(call(USDT, { method: "ft_transfer", args: { receiver_id: "x.near", amount: "5000000000" }, deposit: 1n }), {
+      description: "Pay 500 USDT, treasury budget 5,000 USDT",
+      proposer: "x.near",
+    });
+    const f = analyze(p, ctx(), facts(), NOW).flags.find((x) => x.id === "ambiguous-amount");
+    expect(f?.severity).toBe("medium");
+    expect(f?.detail).toBe("The text mentions 500 USDT, 5000 USDT; the proposal sends 5000 USDt. Confirm which number is the payment.");
+  });
+
+  it("a single matching amount stays quiet", () => {
+    const p = proposal(call(USDT, { method: "ft_transfer", args: { receiver_id: "x.near", amount: "500000000" }, deposit: 1n }), { description: "Pay 500 USDT", proposer: "x.near" });
+    const ids = analyze(p, ctx(), facts(), NOW).flags.map((x) => x.id);
+    expect(ids).not.toContain("ambiguous-amount");
+    expect(ids).not.toContain("description-mismatch");
   });
 });
 

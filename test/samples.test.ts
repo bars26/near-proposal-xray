@@ -23,8 +23,9 @@ describe("in-app samples", () => {
       expect(r.flags.map((f) => f.id)).toEqual(expect.arrayContaining(EXPECT[s.slug].has));
     });
   }
-  it("the clean payment raises nothing above info", () => {
+  it("the clean payment raises nothing above info and leaves nothing unchecked", () => {
     const r = analyze(SAMPLES[0].proposal, ctx, facts, now);
     expect(r.flags.filter((f) => f.severity !== "info")).toEqual([]);
+    expect(r.unchecked).toEqual([]);
   });
 });

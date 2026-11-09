@@ -84,6 +84,8 @@ export interface DecodedCall {
   args: DecodedArgs;
   deposit: bigint;
   gasTgas: number;
+  /** True when X-Ray knows what this method does; false means "decoded but not understood". */
+  known: boolean;
 }
 
 export interface Decoded {
@@ -167,8 +169,34 @@ function decodeCall(index: number, receiver: string, a: ActionCall): DecodedCall
     args: decodeArgs(a.args),
     deposit: big(a.deposit),
     gasTgas: Number(big(String(a.gas))) / 1e12,
+    known: KNOWN_METHODS.has(a.method_name) || CONTROL_METHODS.has(a.method_name),
   };
 }
+
+/** Methods whose effect X-Ray models (see callEffects). Anything else is reported as not understood. */
+export const KNOWN_METHODS = new Set([
+  "ft_transfer",
+  "ft_transfer_call",
+  "nft_transfer",
+  "nft_transfer_call",
+  "mt_transfer",
+  "mt_transfer_call",
+  "mt_batch_transfer",
+  "mt_batch_transfer_call",
+  "ft_withdraw",
+  "mt_withdraw",
+  "near_deposit",
+  "near_withdraw",
+  "storage_deposit",
+  "deposit_and_stake",
+  "deposit",
+  "stake",
+  "unstake",
+  "unstake_all",
+  "withdraw",
+  "withdraw_all",
+  "transfer",
+]);
 
 /** Effects of one function call made by the DAO. */
 export function callEffects(daoId: string, c: DecodedCall): Effect[] {

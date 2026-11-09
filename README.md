@@ -5,7 +5,7 @@ Read any Sputnik DAO or Trezu proposal before you vote: what it really sends, to
 Built at **NEAR HACKATHON** (Nov 2026) for the **Social Money** track (also fits AI Security & Defense).
 
 - Live site: https://near-proposal-xray.vercel.app
-- Feed data: [`data` branch](https://github.com/bars26/near-proposal-xray/tree/data), rebuilt hourly by GitHub Actions
+- Feed data: a snapshot ships with the site (`public/feed.json`); the [`feed` workflow](.github/workflows/feed.yml) rebuilds it hourly on the [`data` branch](https://github.com/bars26/near-proposal-xray/tree/data), which the site prefers when present
 
 ## The problem
 
@@ -30,6 +30,7 @@ For one proposal, a DAO, or every recent proposal on NEAR:
 | id | severity | fires when |
 | --- | --- | --- |
 | `upgrade-unknown` | critical | `UpgradeSelf` hash is not a release published by `sputnik-dao.near` |
+| `upgrade-unverified` | critical | `UpgradeSelf` while the factory's release list could not be loaded: never reported as "official" |
 | `single-signer` | critical | after an open policy change, one account can approve a sensitive kind alone |
 | `treasury-share` | critical ≥50% / high ≥20% | an open proposal moves that share of the DAO's balance of an asset |
 | `control-change` | critical / high | calls `set_owner`, `add_admin`, `upgrade`, `migrate`, `grant_role`, `pause`, ... on another contract |
@@ -39,10 +40,13 @@ For one proposal, a DAO, or every recent proposal on NEAR:
 | `recipient-missing` | high (NEAR) / check | named recipient account does not exist (typo) |
 | `fewer-signers`, `short-period`, `staking-contract`, `upgrade-remote`, `self-call` | high | as named |
 | `self-dealing` | check | proposer can vote on it and is paid by it |
+| `ambiguous-amount` | check | the text names several amounts in the payment's unit and only some match (e.g. "pay 500 USDT, budget 5,000 USDT" while 5,000 is sent) |
 | `opaque-args`, `call-no-code`, `call-missing`, `exceeds-balance`, `batch` | check | as named |
 | `outsider`, `cross-chain`, `one-vote-away`, `member-added/removed` | note | context |
 
 Rules only fire on facts that were actually fetched; a failed RPC lookup never becomes a warning. Balance and policy rules only run on proposals that are still open (finished proposals are already reflected in today's balances and policy).
+
+**"No warning" is not the same as "safe".** Every report also lists the checks that could not run: a method X-Ray does not model (e.g. `donate` on a Potlock pot), a recipient or contract whose existence could not be confirmed, an unknown DAO balance, missing token metadata, an unavailable release list. A proposal with no findings but a non-empty list is shown as **Partly checked** (dashed badge) with a "Not checked" section, never as **Clean**.
 
 ## Try it (judges: "do X → see Y")
 
@@ -54,7 +58,7 @@ Rules only fire on facts that were actually fetched; a failed RPC lookup never b
 4. Click **"New role that can spend alone"** → **Critical**: *"One account could approve alone"*.
 5. Click **"Normal payment"** → no warnings, only a note that the proposer is not a member.
 6. Type `marketing` in the search box → the real `marketing.sputnik-dao.near` page: 3 members, contract v3.0, 2 approvals needed for everything, last 40 proposals with verdicts.
-7. Open `#/dao/marketing.sputnik-dao.near/1026` → a real `FunctionCall` decoded: *"Sends 1 NEAR to marketing.v1.potfactory.potlock.near — deposit attached to donate"* with the JSON arguments.
+7. Open `#/dao/marketing.sputnik-dao.near/1026` → a real `FunctionCall` decoded: *"Sends 1 NEAR to marketing.v1.potfactory.potlock.near — deposit attached to donate"* with the JSON arguments. The badge is **Partly checked**, and "Not checked" says X-Ray does not model `donate` on that contract.
 8. The home page **Live feed** lists recent proposals across all Sputnik DAOs, filterable by *High risk* / *Open now* / *All*.
 
 The 8 samples run against a demo treasury in the page (no chain writes). `test/samples.test.ts` asserts every outcome above.
@@ -63,7 +67,7 @@ The 8 samples run against a demo treasury in the page (no chain writes). `test/s
 
 ```sh
 npm ci
-npm test                      # 37 tests: vote math, decoding, every rule, every sample
+npm test                      # 42 tests: vote math, decoding, every rule, every sample, "partly checked" cases
 npm run dev                   # http://localhost:5173
 npm run inspect -- marketing --last 5       # X-ray a DAO's last 5 proposals in the terminal
 npm run inspect -- marketing 1026 --json    # one proposal as JSON
