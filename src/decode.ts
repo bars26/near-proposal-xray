@@ -448,7 +448,8 @@ function normKey(k: string): string {
 /** Amounts written in the human text, e.g. "500 USDC", "1,250.5 NEAR", "$300". */
 export function mentionedAmounts(text: string): { value: number; symbol: string }[] {
   const out: { value: number; symbol: string }[] = [];
-  const re = /(?:\$\s?(\d[\d,]*(?:\.\d+)?)(?:\s?(k|K))?)|(\d[\d,]*(?:\.\d+)?)\s?(k|K)?\s?(NEAR|wNEAR|USDC|USDT|USDt|USD|DAI|ETH|BTC|Ⓝ)\b/g;
+  // Spaces only (no newlines): "Recipients: 3" followed by a "Contract: USDC.e" line is not "3 USDC".
+  const re = /(?:\$[ \t]?(\d[\d,]*(?:\.\d+)?)(?:[ \t]?(k|K))?)|(\d[\d,]*(?:\.\d+)?)[ \t]?(k|K)?[ \t]?(NEAR|wNEAR|USDC|USDT|USDt|USD|DAI|ETH|BTC|Ⓝ)\b/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     if (m[1]) {

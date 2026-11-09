@@ -205,19 +205,35 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
     }
   }
 
-  // ---- batches: actions hidden behind the first ----
+  // ---- batches: more than one action that moves funds or control ----
+  // Wrapping NEAR or paying storage first is routine (Trezu pays NEAR as near_deposit + ft_transfer),
+  // so only actions that move value or control count.
   if (decoded.calls.length > 1) {
-    const movers = new Set(decoded.effects.filter((e) => e.type === "outflow" || e.type === "control").map((e) => e.actionIndex));
-    const hidden = [...movers].filter((i) => i > 0);
-    if (hidden.length) {
-      add(
-        "hidden-action",
-        "high",
-        `${decoded.calls.length} calls in one proposal; action #${hidden.map((i) => i + 1).join(", #")} also moves funds or control`,
-        "Summary views usually show the first action only. Every action below runs if this passes.",
-      );
+    const movers = [...new Set(decoded.effects.filter((e) => e.type === "outflow" || e.type === "control").map((e) => e.actionIndex))].sort((a, b) => a - b);
+    const extra = movers.slice(1);
+    if (extra.length) {
+      const controlLater = decoded.effects.some((e) => e.type === "control" && extra.includes(e.actionIndex));
+      const singlePaymentLabel = /^payment(-transfer)?$/i.test((claimedAction ?? "").trim());
+      const recipients = new Set(outflows.map((o) => o.to));
+      if (controlLater || singlePaymentLabel) {
+        add(
+          "hidden-action",
+          "high",
+          `Action #${extra.map((i) => i + 1).join(", #")} also moves funds or control`,
+          `${singlePaymentLabel ? `Labelled as a single payment, but ${movers.length} actions move value or control. ` : ""}Summary views usually show the first action only. Every action below runs if this passes.`,
+        );
+      } else {
+        add("multi-payout", "medium", `${movers.length} transfers in one proposal`, `Pays ${recipients.size} recipient${recipients.size === 1 ? "" : "s"} in one vote. Check each line below; they all run together.`);
+      }
     } else if (decoded.calls.length > 3) {
       add("batch", "medium", `Batch of ${decoded.calls.length} calls`, "Review every call; they all run atomically in order.");
+    }
+  }
+
+  // Trezu bulk payments: the recipient list lives in bulkpayment.near, keyed by the msg.
+  for (const c of decoded.calls) {
+    if (c.args.kind === "json" && c.args.value?.receiver_id === "bulkpayment.near") {
+      unchecked.push(`Individual recipients are stored in bulk list ${String(c.args.value.msg ?? "?").slice(0, 16)}… on bulkpayment.near; X-Ray checks the total, not each recipient.`);
     }
   }
 
@@ -456,7 +472,10 @@ export function claimedActionMatches(action: string, d: Decoded): boolean | null
     case "payment":
       return d.variant === "Transfer" || hasOutflow;
     case "asset-exchange":
-      return d.calls.some((c) => c.receiver === "intents.near" || c.receiver === "v2.ref-finance.near" || /swap|ft_transfer_call|mt_transfer/.test(c.method));
+      // Trezu swaps go through NEAR Intents, Rhea, or a 1Click deposit address (plain ft_transfer).
+      return d.calls.some((c) => c.receiver === "intents.near" || c.receiver === "v2.ref-finance.near" || /swap|ft_transfer|mt_transfer/.test(c.method));
+    case "bulk-payment":
+      return d.calls.some((c) => c.receiver === "bulkpayment.near" || (c.args.kind === "json" && c.args.value?.receiver_id === "bulkpayment.near"));
     case "stake":
     case "earn-near":
       return methods.some((m) => m === "deposit_and_stake" || m === "deposit");

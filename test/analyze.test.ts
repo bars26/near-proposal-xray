@@ -80,6 +80,56 @@ describe("never claim more than was checked", () => {
   });
 });
 
+// Shapes taken from real mainnet proposals that the first calibration run flagged wrongly.
+describe("real Trezu patterns stay quiet", () => {
+  it("1Click swap: near_deposit + ft_transfer of wNEAR to a deposit address", () => {
+    const p = proposal(
+      call(
+        "wrap.near",
+        { method: "near_deposit", deposit: 154n * NEAR },
+        { method: "ft_transfer", args: { receiver_id: "8ef46344865cd425903e1601f0dd4ad9d72a7607b2606ff180a2c45882db40b7", amount: (154n * NEAR).toString() }, deposit: 1n },
+      ),
+      { description: "* Proposal Action: asset-exchange <br>* Token In Address: near <br>* Amount In: 154 <br>* Amount Out: 559.830714" },
+    );
+    const got = ids(analyze(p, ctx(), facts(), NOW));
+    expect(got).not.toContain("hidden-action");
+    expect(got).not.toContain("label-mismatch");
+    expect(got).not.toContain("multi-payout");
+  });
+
+  it("bulk payment: 'Recipients: 3' on one line and 'Contract: USDC.e' on the next is not '3 USDC'", () => {
+    const p = proposal(
+      call(USDT, { method: "ft_transfer_call", args: { receiver_id: "bulkpayment.near", amount: "1260000000", msg: "4dfe46f3" }, deposit: 1n }),
+      { description: "* Proposal Action: bulk-payment <br>* Recipients: 3 <br>* Contract: USDT <br>* Amount: 1260" },
+    );
+    const r = analyze(p, ctx(), facts(), NOW);
+    expect(ids(r)).not.toContain("description-mismatch");
+    expect(ids(r)).not.toContain("label-mismatch");
+    expect(r.unchecked.join(" ")).toMatch(/bulk list/);
+  });
+
+  it("an explicit multi-recipient refund is a 'check', not a hidden action", () => {
+    const p = proposal(
+      call(
+        USDT,
+        { method: "ft_transfer", args: { receiver_id: "a.near", amount: "100" }, deposit: 1n },
+        { method: "ft_transfer", args: { receiver_id: "b.near", amount: "200" }, deposit: 1n },
+      ),
+      { description: "Refund token to users" },
+    );
+    const f = analyze(p, ctx(), facts(), NOW).flags;
+    expect(f.map((x) => x.id)).not.toContain("hidden-action");
+    expect(f.find((x) => x.id === "multi-payout")?.severity).toBe("medium");
+  });
+
+  it("a later control change is still high even without a payment label", () => {
+    const p = proposal(
+      call("token.acme.near", { method: "ft_transfer", args: { receiver_id: "a.near", amount: "1" }, deposit: 1n }, { method: "set_owner", args: { owner_id: "mallory.near" } }),
+    );
+    expect(analyze(p, ctx(), facts(), NOW).flags.find((x) => x.id === "hidden-action")?.severity).toBe("high");
+  });
+});
+
 describe("risk rules", () => {
   it("hidden-action: a payment whose second action moves more funds", () => {
     const p = proposal(
