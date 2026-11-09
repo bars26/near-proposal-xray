@@ -167,6 +167,14 @@ describe("risk rules", () => {
     expect(r.flags[0]).toMatchObject({ id: "upgrade-unknown", severity: "critical" });
   });
 
+  it("upgrade-unknown: a hash one character off v3.2 is called out as a look-alike (real: deer.sputnik-dao.near #3)", () => {
+    const c = ctx();
+    c.versions = { DtHZA1mUmGYeScEaUoUZYQGGFHSMpnjMCvkr5U9hJXuF: "v3.2" };
+    const r = analyze(proposal({ UpgradeSelf: { hash: "DtHZA1mUmGYeScEaUoUZYQGGFHSMpnjMCvkr5U9hJXu" } }), c, facts(), NOW);
+    expect(r.flags[0]).toMatchObject({ id: "upgrade-unknown", severity: "critical", title: "Code hash only looks like Sputnik v3.2" });
+    expect(r.flags[0].detail).toMatch(/^DtHZA1mUmGYeScEaUoUZYQGGFHSMpnjMCvkr5U9hJXu is 1 character\(s\) off/);
+  });
+
   it("upgrade-known: UpgradeSelf to an official release is high, not critical", () => {
     const r = analyze(proposal({ UpgradeSelf: { hash: "DtHZA1mUmGYeScEaUoUZYQGGFHSMpnjMCvkr5U9hJXuF" } }), ctx(), facts(), NOW);
     expect(r.flags[0]).toMatchObject({ id: "upgrade-known", severity: "high" });

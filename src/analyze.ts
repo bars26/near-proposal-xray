@@ -277,7 +277,15 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
       add("upgrade-unverified", "critical", "Replaces the DAO's code; hash could not be verified", `The list of official Sputnik releases (sputnik-dao.near get_contracts_metadata) could not be loaded, so code hash ${hash} is unchecked. Treat it as unknown code until verified.`);
       unchecked.push("Official Sputnik release list unavailable: the upgrade's code hash was not verified.");
     } else if (!ctx.knownCodeHashes.includes(hash)) {
-      add("upgrade-unknown", "critical", "Replaces the DAO's code with unknown code", `Code hash ${hash} is not a Sputnik release known to sputnik-dao.near. Whoever wrote it can take everything.`);
+      const near = ctx.knownCodeHashes.find((h) => editDistance(h, hash) <= 2);
+      add(
+        "upgrade-unknown",
+        "critical",
+        near ? `Code hash only looks like Sputnik ${ctx.versions?.[near] ?? "release"}` : "Replaces the DAO's code with unknown code",
+        near
+          ? `${hash} is ${editDistance(near, hash)} character(s) off the official ${ctx.versions?.[near] ?? ""} hash ${near}. Not the same code: the upgrade fails, or deploys something else if that blob exists.`
+          : `Code hash ${hash} is not a Sputnik release known to sputnik-dao.near. Whoever wrote it can take everything.`,
+      );
     } else {
       add("upgrade-known", "high", "Upgrades the DAO's code", `Hash ${hash} matches Sputnik ${ctx.versions?.[hash] ?? "release"} published by the factory.`);
     }
@@ -510,3 +518,15 @@ function round(v: number): string {
 }
 
 export { minSigners, roleAllows, ftContractOf };
+
+/** Levenshtein distance, capped early for long unrelated strings. */
+export function editDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 3) return 99;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
