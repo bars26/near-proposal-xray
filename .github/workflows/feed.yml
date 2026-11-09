@@ -1,0 +1,49 @@
+name: Build risk feed
+
+# X-rays recent proposals of every Sputnik DAO each hour and publishes feed.json to the
+# `data` branch, which the site reads through raw.githubusercontent.com.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: feed
+  cancel-in-progress: false
+
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      # Reuse the last run's per-DAO state so only DAOs with new proposals are re-read.
+      - name: Load the published feed
+        run: |
+          git clone --depth 1 --branch data "https://github.com/${GITHUB_REPOSITORY}.git" out || mkdir -p out
+          rm -rf out/.git
+
+      - name: Build feed
+        run: node scripts/build-feed.ts --out out --days 90
+
+      # A single orphan commit, force-pushed, so the data branch never accumulates history.
+      - name: Publish
+        working-directory: out
+        run: |
+          echo '{"git":{"deploymentEnabled":false}}' > vercel.json
+          git init -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Feed at $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" data
+

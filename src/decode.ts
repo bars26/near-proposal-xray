@@ -192,7 +192,7 @@ export function callEffects(daoId: string, c: DecodedCall): Effect[] {
         asset: { kind: "near" },
         amount: c.deposit,
         to: c.receiver,
-        via: `deposit attached to ${m} on ${c.receiver}`,
+        via: `deposit attached to ${m} on ${nameOf(c.receiver)}`,
         actionIndex: i,
       });
     }
@@ -204,7 +204,7 @@ export function callEffects(daoId: string, c: DecodedCall): Effect[] {
       const to = String(args.receiver_id ?? "?");
       let finalTo = to;
       let crossChain = false;
-      let via = `${m} on ${c.receiver}`;
+      let via = `${m} on ${nameOf(c.receiver)}`;
       if (m === "ft_transfer_call" && to === "intents.near") {
         // Deposit into the DAO's (or someone's) NEAR Intents balance.
         const msg = typeof args.msg === "string" ? args.msg : "";
@@ -236,7 +236,7 @@ export function callEffects(daoId: string, c: DecodedCall): Effect[] {
         asset: { kind: "nft", contract: c.receiver, tokenId: String(args.token_id ?? "?") },
         amount: 1n,
         to: String(args.receiver_id ?? "?"),
-        via: `${m} on ${c.receiver}`,
+        via: `${m} on ${nameOf(c.receiver)}`,
         actionIndex: i,
       });
       break;
@@ -247,7 +247,7 @@ export function callEffects(daoId: string, c: DecodedCall): Effect[] {
         asset: c.receiver === "intents.near" ? { kind: "intents", tokenId: String(args.token_id ?? "?") } : { kind: "ft", contract: `${c.receiver}#${args.token_id}` },
         amount: big(args.amount),
         to: String(args.receiver_id ?? "?"),
-        via: `${m} on ${c.receiver}`,
+        via: `${m} on ${nameOf(c.receiver)}`,
         actionIndex: i,
       });
       break;
@@ -262,7 +262,7 @@ export function callEffects(daoId: string, c: DecodedCall): Effect[] {
           asset: c.receiver === "intents.near" ? { kind: "intents", tokenId: String(id) } : { kind: "ft", contract: `${c.receiver}#${id}` },
           amount: big(amounts[k]),
           to: String(args.receiver_id ?? "?"),
-          via: `${m} on ${c.receiver}`,
+          via: `${m} on ${nameOf(c.receiver)}`,
           actionIndex: i,
         }),
       );
@@ -351,7 +351,7 @@ export function decodeProposal(daoId: string, p: Proposal): Decoded {
         asset,
         amount: big(t.amount),
         to: t.receiver_id,
-        via: asset.kind === "near" ? "native NEAR transfer" : t.msg ? `ft_transfer_call on ${tokenId}` : `ft_transfer on ${tokenId}`,
+        via: asset.kind === "near" ? "native NEAR transfer" : t.msg ? `ft_transfer_call on ${nameOf(tokenId)}` : `ft_transfer on ${nameOf(tokenId)}`,
         actionIndex: 0,
       });
       break;
@@ -435,4 +435,11 @@ export function mentionedAmounts(text: string): { value: number; symbol: string 
     }
   }
   return out.filter((x) => Number.isFinite(x.value) && x.value > 0);
+}
+
+/** Readable name for a contract in prose: known label, or a shortened id. */
+export function nameOf(id: string): string {
+  const known = describeAccount(id);
+  if (known && KNOWN_CONTRACTS[id]) return known;
+  return id.length > 32 ? `${id.slice(0, 8)}…${id.slice(-14)}` : id;
 }

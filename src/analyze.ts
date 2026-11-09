@@ -91,7 +91,9 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
     else totals.set(key, { asset: o, amount: o.amount });
   }
   // Balances are today's; comparing them to finished proposals says nothing.
-  const live = p.status === "InProgress";
+  // Expired proposals keep status InProgress on chain until someone finalizes them.
+  const votes = voteState(p, ctx, nowMs);
+  const live = p.status === "InProgress" && !votes.expired;
   for (const { asset: o, amount } of live ? totals.values() : []) {
     let balance: bigint | null = null;
     if (o.asset.kind === "near") balance = ctx.nearBalance;
@@ -117,6 +119,25 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
   }
 
   // ---- who receives ----
+  const missing = new Map<string, boolean>(); // account -> receives NEAR?
+  for (const o of outflows) {
+    if (isNearAccountId(o.to) && !isImplicit(o.to) && facts.accountExists[o.to] === false) {
+      missing.set(o.to, (missing.get(o.to) ?? false) || o.asset.kind === "near");
+    }
+  }
+  if (missing.size) {
+    const list = [...missing.keys()];
+    const anyNear = [...missing.values()].some(Boolean);
+    add(
+      "recipient-missing",
+      anyNear ? "high" : "medium",
+      list.length === 1 ? `Recipient ${list[0]} does not exist` : `${list.length} recipients do not exist`,
+      `${list.slice(0, 5).join(", ")}${list.length > 5 ? ` and ${list.length - 5} more` : ""}. ` +
+        (anyNear
+          ? "Named accounts must exist before they can receive NEAR. Check for a typo: the transfer will fail."
+          : "Token transfers to them will fail, or land at an account nobody controls yet."),
+    );
+  }
   for (const o of outflows) {
     if (o.to === p.proposer && approvers.has(p.proposer)) {
       add(
@@ -124,16 +145,6 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
         "medium",
         "An approver pays themself",
         `${formatAmount(o.amount, o.asset, facts)} goes to ${p.proposer}, who proposed it and can also vote to approve it. Their own vote counts toward the threshold.`,
-      );
-    }
-    if (isNearAccountId(o.to) && !isImplicit(o.to) && facts.accountExists[o.to] === false) {
-      add(
-        "recipient-missing",
-        o.asset.kind === "near" ? "high" : "medium",
-        `Recipient ${o.to} does not exist`,
-        o.asset.kind === "near"
-          ? "Named accounts must exist before they can receive NEAR. Check for a typo: the transfer will fail."
-          : "The token transfer will fail, or the funds land at an account nobody controls yet.",
       );
     }
     if (o.crossChain) {
@@ -225,21 +236,25 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
 
   // ---- policy changes ----
   let policyDiff: PolicyDiff | null = null;
-  if (isPolicyKind(p.kind)) {
+  // The diff is computed against TODAY's policy, so it only means something while the
+  // proposal is still open. A finished proposal's change is already part of today's policy.
+  if (isPolicyKind(p.kind) && live) {
     const after = applyPolicyChange(ctx.policy, p.kind);
     if (after) {
       policyDiff = diffPolicies(ctx.policy, after);
+      const single: string[] = [];
+      const fewer: string[] = [];
+      const fresh: string[] = [];
       for (const line of policyDiff.lines) {
         const b = line.before?.n ?? null;
         const a = line.after?.n ?? null;
-        if (a !== null && a === 1 && (b === null || b > 1)) {
-          add("single-signer", "critical", `One account could pass "${line.label}" proposals alone`, `After this change, 1 vote from role "${line.after!.role}" approves ${line.label} proposals (today: ${b ?? "token-weighted / none"}).`);
-        } else if (a !== null && b !== null && a < b) {
-          add("fewer-signers", "high", `Fewer approvals needed for "${line.label}"`, `${b} → ${a} approvals.`);
-        } else if (a !== null && b === null && line.label !== "upgrade_self") {
-          add("new-approval-path", "medium", `New way to approve "${line.label}"`, `Role "${line.after!.role}" can now pass it with ${a} approval(s).`);
-        }
+        if (a !== null && a === 1 && (b === null || b > 1)) single.push(`${line.label} (role "${line.after!.role}", today ${b ?? "none"})`);
+        else if (a !== null && b !== null && a < b) fewer.push(`${line.label}: ${b} → ${a}`);
+        else if (a !== null && b === null && line.label !== "upgrade_self") fresh.push(`${line.label} via "${line.after!.role}" (${a})`);
       }
+      if (single.length) add("single-signer", "critical", "One account could approve alone", `After this change a single vote passes: ${single.join("; ")}.`);
+      if (fewer.length) add("fewer-signers", "high", "Fewer approvals needed", fewer.join("; ") + ".");
+      if (fresh.length) add("new-approval-path", "medium", "New way to approve", fresh.join("; ") + ".");
       for (const r of after.roles) {
         if (r.kind === "Everyone" && r.permissions.some((perm) => /:(VoteApprove|\*)$/.test(perm) || perm === "*:*")) {
           const before = ctx.policy.roles.find((x) => x.name === r.name);
@@ -271,8 +286,7 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
   }
 
   // ---- votes ----
-  const votes = voteState(p, ctx, nowMs);
-  if (p.status === "InProgress" && votes.remaining === 1) {
+  if (live && votes.remaining === 1) {
     add("one-vote-away", "info", "One more approval passes it", "Review now: the next approval executes it.");
   }
 

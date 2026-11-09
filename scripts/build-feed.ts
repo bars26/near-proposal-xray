@@ -4,6 +4,7 @@
 //   npm run feed                       # full scan
 //   npm run feed -- --days 30 --per-dao 20
 //   npm run feed -- --calibrate        # also print how often each rule fires
+//   npm run feed -- --out out          # write feed.json + feed-state.json elsewhere (CI)
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { NearRpc } from "../src/rpc.ts";
@@ -19,8 +20,10 @@ const opt = (name: string, def: number) => {
 const DAYS = opt("days", 90);
 const PER_DAO = opt("per-dao", 25);
 const CALIBRATE = argv.includes("--calibrate");
-const OUT = "public/feed.json";
-const STATE = "public/feed-state.json";
+const outIdx = argv.indexOf("--out");
+const OUT_DIR = outIdx >= 0 ? argv[outIdx + 1] : "public";
+const OUT = `${OUT_DIR}/feed.json`;
+const STATE = `${OUT_DIR}/feed-state.json`;
 
 const rpc = new NearRpc({ maxConcurrent: 6, retries: 8 });
 const now = Date.now();
@@ -102,9 +105,10 @@ const items = reports.map((r) => ({
 }));
 
 const counts: Record<string, number> = {};
-for (const r of reports) for (const f of r.flags) counts[f.id] = (counts[f.id] ?? 0) + 1;
+// Per proposal, not per flag: one proposal can raise the same rule several times.
+for (const r of reports) for (const id of new Set(r.flags.map((f) => f.id))) counts[id] = (counts[id] ?? 0) + 1;
 
-mkdirSync("public", { recursive: true });
+mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(
   OUT,
   JSON.stringify(

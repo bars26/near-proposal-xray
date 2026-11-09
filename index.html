@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Proposal X-Ray</title>
+    <meta name="description" content="Read any Sputnik DAO or Trezu proposal before you vote: what it really sends, to whom, and what it changes." />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <header class="top">
+      <a href="#/" class="brand"><img src="/logo.svg" alt="" width="28" height="28" /><span>Proposal X-Ray</span></a>
+      <form id="search" class="search" autocomplete="off">
+        <input id="q" name="q" placeholder="DAO, e.g. marketing or treasury.sputnik-dao.near (add #12 for a proposal)" aria-label="DAO or proposal" />
+        <button type="submit">Inspect</button>
+      </form>
+      <button id="theme" class="ghost" type="button" aria-label="Toggle dark mode">◐</button>
+    </header>
+    <main id="app" aria-live="polite"></main>
+    <footer class="foot">
+      Read-only. Reads Sputnik DAO v2 contracts (used by Trezu) straight from NEAR mainnet RPC; nothing is signed.
+      <a href="https://github.com/bars26/near-proposal-xray">Source</a>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

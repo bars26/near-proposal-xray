@@ -94,6 +94,22 @@ describe("risk rules", () => {
     expect(r.policyDiff?.roleChanges[0]).toContain('new role "ops"');
   });
 
+  it("policy rules skip finished proposals (their change is already in today's policy)", () => {
+    const kind = { RemoveMemberFromRole: { member_id: "bob.near", role: "Council" } };
+    const r = analyze(proposal(kind, { status: "Approved" }), ctx(policy(["alice.near", "bob.near"])), facts(), NOW);
+    expect(ids(r)).not.toContain("single-signer");
+    const open = analyze(proposal(kind), ctx(policy(["alice.near", "bob.near"])), facts(), NOW);
+    expect(ids(open).filter((i) => i === "single-signer")).toHaveLength(1);
+  });
+
+  it("many missing recipients collapse into one warning", () => {
+    const actions = ["l0.x.near", "l1.x.near", "l2.x.near"].map((to) => ({ method: "ft_transfer", args: { receiver_id: to, amount: "1" }, deposit: 1n }));
+    const r = analyze(proposal(call(USDT, ...actions)), ctx(), facts({ accountExists: { "l0.x.near": false, "l1.x.near": false, "l2.x.near": false } }), NOW);
+    const f = r.flags.filter((x) => x.id === "recipient-missing");
+    expect(f).toHaveLength(1);
+    expect(f[0].title).toBe("3 recipients do not exist");
+  });
+
   it("self-dealing: a council member proposes paying themself", () => {
     const p = proposal({ Transfer: { token_id: "", receiver_id: "alice.near", amount: (5n * NEAR).toString() } });
     expect(ids(analyze(p, ctx(), facts(), NOW))).toContain("self-dealing");

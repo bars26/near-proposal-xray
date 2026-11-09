@@ -41,7 +41,9 @@ export class NearRpc {
   private retries: number;
 
   constructor(opts: RpcOptions = {}) {
-    this.endpoints = opts.endpoints?.length ? opts.endpoints : DEFAULT_RPCS;
+    // archival-rpc.mainnet.near.org sends no CORS headers, so browsers skip it.
+    const inBrowser = typeof window !== "undefined";
+    this.endpoints = opts.endpoints?.length ? opts.endpoints : DEFAULT_RPCS.filter((u) => !(inBrowser && u.includes("archival-rpc")));
     this.maxConcurrent = opts.maxConcurrent ?? 4;
     this.retries = opts.retries ?? 6;
   }
