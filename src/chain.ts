@@ -1,6 +1,6 @@
 // Fetches the DAO context and the on-chain facts a set of proposals depends on.
 
-import { NearRpc, EMPTY_CODE_HASH } from "./rpc.ts";
+import { NearRpc, effectiveCodeHash, runsContract } from "./rpc.ts";
 import { decodeProposal, ftContractOf } from "./decode.ts";
 import type { ChainFacts, DaoContext, Policy, Proposal } from "./types.ts";
 
@@ -22,7 +22,7 @@ export async function loadDao(rpc: NearRpc, daoId: string): Promise<DaoContext> 
     nearBalance: BigInt(account.amount),
     knownCodeHashes: metadata.map(([h]) => h),
     versions,
-    codeHash: account.code_hash,
+    codeHash: effectiveCodeHash(account),
   };
 }
 
@@ -85,7 +85,7 @@ export async function collectFacts(rpc: NearRpc, ctx: DaoContext, proposals: Pro
       try {
         const acc = await rpc.account(a);
         facts.accountExists[a] = !!acc;
-        facts.hasCode[a] = !!acc && acc.code_hash !== EMPTY_CODE_HASH;
+        facts.hasCode[a] = !!acc && runsContract(acc);
       } catch {
         /* unknown: leave undefined so no rule fires on missing data */
       }

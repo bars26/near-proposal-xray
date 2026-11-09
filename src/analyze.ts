@@ -283,7 +283,7 @@ export function analyze(p: Proposal, ctx: DaoContext, facts: ChainFacts, nowMs =
         "critical",
         near ? `Code hash only looks like Sputnik ${ctx.versions?.[near] ?? "release"}` : "Replaces the DAO's code with unknown code",
         near
-          ? `${hash} is ${editDistance(near, hash)} character(s) off the official ${ctx.versions?.[near] ?? ""} hash ${near}. Not the same code: the upgrade fails, or deploys something else if that blob exists.`
+          ? `${hash} is ${editDistance(near, hash)} character(s) off the official ${ctx.versions?.[near] ?? ""} hash ${near}. Not the same code: the factory rejects unknown hashes (ERR_NO_HASH), and Sputnik still marks the proposal Approved because upgrades have no failure callback. "Approved" here does not mean upgraded.`
           : `Code hash ${hash} is not a Sputnik release known to sputnik-dao.near. Whoever wrote it can take everything.`,
       );
     } else {

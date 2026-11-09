@@ -124,7 +124,7 @@ export class NearRpc {
   }
 
   /** Returns account state, or null if the account does not exist. */
-  async account(accountId: string): Promise<{ amount: string; code_hash: string } | null> {
+  async account(accountId: string): Promise<AccountView | null> {
     try {
       return await this.raw("query", {
         request_type: "view_account",
@@ -158,3 +158,25 @@ export function b64decodeBytes(s: string): Uint8Array {
 
 /** Account that holds no code reports this hash. */
 export const EMPTY_CODE_HASH = "11111111111111111111111111111111";
+
+export interface AccountView {
+  amount: string;
+  /** "1111…" when the account has no own code, including accounts that use a global contract. */
+  code_hash: string;
+  /** NEP-591 global contract referenced by hash (e.g. Sputnik v3.2 DAOs). */
+  global_contract_hash?: string;
+  /** NEP-591 global contract referenced by deployer account. */
+  global_contract_account_id?: string;
+}
+
+/** True when the account runs any contract: its own code or a global contract. */
+export function runsContract(a: AccountView): boolean {
+  return a.code_hash !== EMPTY_CODE_HASH || !!a.global_contract_hash || !!a.global_contract_account_id;
+}
+
+/** Hash of the code the account runs, or undefined when it has none or it cannot be pinned to a hash. */
+export function effectiveCodeHash(a: AccountView): string | undefined {
+  if (a.global_contract_hash) return a.global_contract_hash;
+  if (a.global_contract_account_id) return undefined; // follows whatever that account publishes
+  return a.code_hash !== EMPTY_CODE_HASH ? a.code_hash : undefined;
+}
