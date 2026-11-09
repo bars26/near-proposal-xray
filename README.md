@@ -48,6 +48,13 @@ Rules only fire on facts that were actually fetched; a failed RPC lookup never b
 
 **"No warning" is not the same as "safe".** Every report also lists the checks that could not run: a method X-Ray does not model (e.g. `donate` on a Potlock pot), a recipient or contract whose existence could not be confirmed, an unknown DAO balance, missing token metadata, an unavailable release list. A proposal with no findings but a non-empty list is shown as **Partly checked** (dashed badge) with a "Not checked" section, never as **Clean**.
 
+## Found on mainnet
+
+From a scan of 3,133 proposals in 450 active DAOs (last 90 days):
+
+- **`deer.sputnik-dao.near` #0–#4**: five proposals titled "Upgrade Sputnik-DAO Contract to 3.2" pass the code hash `…U9hJXu`, one character short of the official v3.2 hash `…U9hJXuF`. X-Ray: *"Code hash only looks like Sputnik v3.2"*. Open `#/dao/deer.sputnik-dao.near/3`.
+- **`dti-lab-jj.sputnik-dao.near` #56**: titled "Transferencia de 200 NEAR", the payload sends **275 NEAR** to the proposer. X-Ray: *"Description and payload disagree"* plus *"An approver pays themself"*. (The DAO rejected it.)
+
 ## Try it (judges: "do X → see Y")
 
 **In the browser**, open the live site, then:
